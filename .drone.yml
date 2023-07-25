@@ -1,0 +1,62 @@
+---
+kind: pipeline
+type: kubernetes
+name: build
+steps:
+  - name: yaml_validator
+    image: devatherock/drone-yaml-validator:latest
+    settings:
+      debug: true
+      continue_on_error: false
+      allow_duplicate_keys: false
+      ignore_unknown_tags: true
+  - name: build-push
+    image: plugins/docker
+    settings:
+      registry: harbor.134.209.138.125.nip.io
+      repo: harbor.134.209.138.125.nip.io/team-admin/example-site
+      insecure: true
+      username:
+        from_secret: REGISTRY_USERNAME
+      password:
+        from_secret: REGISTRY_PASSWORD
+      tags:
+        - ${DRONE_BUILD_NUMBER}
+        - latest
+---
+kind: pipeline
+type: kubernetes
+name: update-docker-dev
+clone:
+  disable: true
+steps:
+  - name: clone-workload
+    image: plugins/git
+    commands:
+      - git clone https://gitea.134.209.138.125.nip.io/otomi/argo-workload.git .
+  - name: update-docker-tag
+    image: alpine/git
+    commands:
+      - sed -i 's/example-site:.*/example-site:'"${DRONE_BUILD_NUMBER}"'/g'
+        ./example-site-dev/deployment.yaml
+  - name: git-config
+    image: alpine/git
+    commands:
+      - git config --global user.name "Drone CI"
+      - git config --global user.email "bot@drone.com"
+  - name: git-push
+    image: appleboy/drone-git-push
+    settings:
+      branch: master
+      remote: https://gitea.134.209.138.125.nip.io/otomi/argo-workload.git
+      username:
+        from_secret: GIT_USERNAME
+      password:
+        from_secret: GIT_PASSWORD
+      force: true
+      commit: true
+      commit_message: Update example-site-dev with docker image ${DRONE_BUILD_NUMBER}
+      author_name: droneCI
+      author_email: gitea@local.domain
+depends_on:
+  - build
